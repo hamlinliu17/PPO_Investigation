@@ -50,11 +50,11 @@ class PPO:
 				epochs, 
 				epsilon,
 				has_continuous_action_space,
-				action_std_init=1,
-				device):
+				device,
+				action_std_init=1):
 
 		self.discount_factor = gamma
-
+		self.device = device
 		self.clip_factor = epsilon
 		self.epochs = epochs
 		self.buffer = RolloutBuffer()
@@ -63,8 +63,8 @@ class PPO:
 		self.critic = critic.to(device)
 		self.optimizer = torch.optim.Adam(
 			[ 
-				{'params': self.policy.actor.parameters(), 'lr': lrate_actor},
-				{'params': self.policy.critic.parameters(), 'lr': lrate_critic}
+				{'params': self.actor.parameters(), 'lr': lrate_actor},
+				{'params': self.critic.parameters(), 'lr': lrate_critic}
 			]
 		)
 
@@ -88,7 +88,7 @@ class PPO:
 		action_logprob = dist.log_prob(action)
 
 		self.buffer.actions.append(action.detach())
-		self.buffer.state.append(state)
+		self.buffer.states.append(state)
 		self.buffer.logprobs.append(action_logprob.detach())
 
 		if self.continuous:
@@ -99,7 +99,7 @@ class PPO:
 
 	def evaluate(self, state, action):
 
-		if self.has_continuous_action_space:
+		if self.continuous:
 			action_mean = self.actor(state)
 			action_var = self.action_var.expand_as(action_mean)
 			cov_mat = torch.diag_embed(action_var).to(self.device)
@@ -115,8 +115,9 @@ class PPO:
 
 		action_logprobs = dist.log_prob(action)
 		state_values = self.critic(state)
+		dist_entropy = dist.entropy()
 
-		return action_logprobs, state_values
+		return action_logprobs, state_values, dist_entropy
 
 	def monte_carlo(self):
 
@@ -125,7 +126,8 @@ class PPO:
 		for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
 			if is_terminal:
 				discounted_reward = 0
-			discounted_reward = reward + (self.gamma * discounted_reward)
+			discounted_reward = reward + (self.discount_factor * discounted_reward)
+
 			rewards.insert(0, discounted_reward)
 			
 		# Normalizing the rewards
@@ -149,10 +151,12 @@ class PPO:
 		#Optimizing for K epochs:
 		for _ in range(self.epochs):
 			#evaluate old actions & values
-			logprobs, state_values = self.evaluate(old_states, old_actions)
+			logprobs, state_values, dist_entropy = self.evaluate(old_states, old_actions)
 
 			ratios = torch.exp(logprobs - old_logprobs)
 
+      # Utilizing the comb
+			state_values = torch.squeeze(state_values)
 			#finding the surrrogate loss
 			advantage = rewards - state_values.detach()
 			#surrogate loss original
@@ -160,13 +164,14 @@ class PPO:
 			#surrogate loss clipped
 			surr2 = torch.clamp(ratios, 1 - self.clip_factor,1 + self.clip_factor) * advantage
 
-			# Utilizing the comb
+			
 
-			loss = -torch.min(surr1, surr2) +  0.5 * F.MSELoss(state_values, rewards)
+			loss = -torch.min(surr1, surr2) +  0.5 * F.mse_loss(state_values, rewards) - 0.01 * dist_entropy
 
 			# take gradient step
 			self.optimizer.zero_grad() #zero out the gradients since PyTorch accumulates the gradients
 			loss.mean().backward() #use backward for computational efficiency in taking gradients
+			self.optimizer.step()
 
 		self.buffer.clear()
 
