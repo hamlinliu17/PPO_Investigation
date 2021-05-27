@@ -50,6 +50,7 @@ class PPO:
 				epochs, 
 				epsilon,
 				has_continuous_action_space,
+				action_std_init=1,
 				device):
 
 		self.discount_factor = gamma
@@ -66,6 +67,8 @@ class PPO:
 				{'params': self.policy.critic.parameters(), 'lr': lrate_critic}
 			]
 		)
+
+		self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(device)
 		
 		self.continuous = has_continuous_action_space
 
