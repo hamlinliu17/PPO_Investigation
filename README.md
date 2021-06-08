@@ -8,11 +8,9 @@ Final Project for ECE 239AS (Reinforcement learning) with Professor Lin Yang. We
     `PPO` object that can train and update the actor and critic network according
     to Proximal Policy Optimization
 
-* `notebooks/`: Notebooks folder
+* `notebooks/`: Notebooks folder (Here is a subset of the notebooks that we used. All of them can be found in this drive folder link: https://drive.google.com/drive/folders/1VaV-ge_SGCTJeEYOTqgypeuNGFk-Vguv?usp=sharing)
     * `terri-search_PPO_main_notebook_MLP1.ipynb`: notebook containing the training loop to train the fully connected neural net architecture on the LunarLander environment
     * `terri_ANT_TANH_PPO_main_notebook.ipynb`: notebook containing the training loop to train the fully connected neural net architecture on the RoboschoolAnt environment
-    * `Steven_LUNAR_ReLU_PPO_main_notebook.ipynb`:
-    notebook containing the training loop to train the fully connected neural net architecture using ReLU as activation on the LunarLander environment
     * `Steven_ANT_ReLU_PPO_main_notebook.ipynb`: notebook containing the training loop to train the fully connected neural net architecture using ReLU as activation on the RoboschoolAnt environment
     * `PPO_main_notebook.ipynb`: notebook containing the main training loop
     * `hamlin_PPO_main_notebook.ipynb`: notebook containing the training loop to train the convolution neural net architecture using ReLU as activation on the RoboschoolAnt environment
