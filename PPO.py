@@ -51,6 +51,7 @@ class PPO:
 				epsilon,
 				has_continuous_action_space,
 				device,
+				using_TD = False,
 				action_std_init=1):
 
 		self.discount_factor = gamma
@@ -59,7 +60,7 @@ class PPO:
 		self.epochs = epochs
 		self.buffer = RolloutBuffer()
 		self.action_dim = action_dim
-		self.actor = actor.to(device) 
+		self.actor = actor.to(device)
 		self.critic = critic.to(device)
 		self.optimizer = torch.optim.Adam(
 			[ 
@@ -67,6 +68,7 @@ class PPO:
 				{'params': self.critic.parameters(), 'lr': lrate_critic}
 			]
 		)
+		self.using_TD = using_TD
 
 		self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(device)
 		
@@ -76,9 +78,11 @@ class PPO:
 
 		with torch.no_grad():
 			state = torch.FloatTensor(state).to(self.device)
+			print(state.shape)
 			if self.continuous:
 				action_mean = self.actor(state)
-				cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
+
+				cov_mat = torch.diag(self.action_var).unsqueeze(dim=0).to(self.device).type('torch.FloatTensor')
 				dist = MultivariateNormal(action_mean, cov_mat)
 			else:
 				action_probs = self.actor(state)
@@ -102,7 +106,7 @@ class PPO:
 		if self.continuous:
 			action_mean = self.actor(state)
 			action_var = self.action_var.expand_as(action_mean)
-			cov_mat = torch.diag_embed(action_var).to(self.device)
+			cov_mat = torch.diag_embed(action_var).to(self.device).type('torch.FloatTensor')
 			dist = MultivariateNormal(action_mean, cov_mat)
 			
 			# for single action continuous environments
@@ -136,6 +140,19 @@ class PPO:
 
 		return rewards
 
+	def TD_get_advantage(self, rewards, values):
+
+		advantages, gae = [], 0
+
+		for i in reversed(range(len(rewards))):
+
+			# TD error
+			next_value = 0 if i + 1 == len(rewards) else values[i + 1]
+			delta = rewards[i] + self.discount_factor * next_value - values[i]
+			gae = delta + self.discount_factor * 0.95 * gae
+			advantages.insert(0, delta)
+
+		return torch.tensor(advantages, dtype=torch.float32).to(self.device)
 
 	def update(self):
 		# TODO: finish this up and test it around
@@ -147,24 +164,34 @@ class PPO:
 		old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
 		old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
 		old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(self.device)
+		
+			
 
 		#Optimizing for K epochs:
 		for _ in range(self.epochs):
+
 			#evaluate old actions & values
 			logprobs, state_values, dist_entropy = self.evaluate(old_states, old_actions)
+			state_values = torch.squeeze(state_values)
+
+
+			if not self.using_TD:
+				
+				#finding the surrrogate loss
+				advantage = rewards - state_values.detach() 
+			else: 
+				advantage = self.TD_get_advantage(self.buffer.rewards, state_values.detach())
+
+
+
 
 			ratios = torch.exp(logprobs - old_logprobs)
-
-      # Utilizing the comb
-			state_values = torch.squeeze(state_values)
-			#finding the surrrogate loss
-			advantage = rewards - state_values.detach()
+            # Utilizing the comb
+			
 			#surrogate loss original
 			surr1 = ratios * advantage
 			#surrogate loss clipped
 			surr2 = torch.clamp(ratios, 1 - self.clip_factor,1 + self.clip_factor) * advantage
-
-			
 
 			loss = -torch.min(surr1, surr2) +  0.5 * F.mse_loss(state_values, rewards) - 0.01 * dist_entropy
 
@@ -177,9 +204,9 @@ class PPO:
 
 
 	def save_actor(self, path):
-		torch.save(self.actor.state_dict, path)
-
-	def load_actor(self, path, actor_test: nn.Module):
-		self.actor = actor_test.load_state_dict(torch.load(path, device=self.device))
+		torch.save(self.actor.state_dict(), path) # made an edit here -terri
+    
+	def load_actor(self, path):
+		self.actor.load_state_dict(torch.load(path, self.device)) # made an edit here - terri
 
 
